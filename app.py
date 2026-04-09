@@ -13,7 +13,7 @@ KEY = st.secrets["SUPABASE_KEY"]
 supabase = create_client(URL, KEY)
 
 st.set_page_config(page_title="study tracker", layout="centered")
-st.title("📚 Study Tracker")
+st.title("Study Tracker")
 
 # --- 便利関数 ---
 def extract_page_number(text):
@@ -60,14 +60,14 @@ def display_habit_tracker(book_id):
         st.plotly_chart(fig, use_container_width=True)
 
 # --- タブの設定 ---
-tab1, tab2 = st.tabs(["🏠 今日のタスク", "➕ 新しい本を登録"])
+tab1, tab2 = st.tabs(["Today’s Task", "+ Add New Book"])
 
 # --- タブ1: 今日のタスク ---
 with tab1:
     books_res = supabase.table("study_books").select("*").execute()
     
     if not books_res.data:
-        st.info("本が登録されていません。「新しい本を登録」タブから登録してください。")
+        st.info("本が登録されていません。「+ Add New Book」タブから登録してください。")
     else:
         # 本の選択
         book_options = {b['title']: b for b in books_res.data}
@@ -101,10 +101,10 @@ with tab1:
 
         # --- 表示部分 ---
         streak = calculate_streak(book['id'])
-        st.markdown(f"### 🔥 現在 **{streak}** 日連続学習中！")
+        st.markdown(f"### 現在 **{streak}** 日連続学習中！")
 
         if is_weekend:
-            st.info("☕ **今日は復習の日です**")
+            st.info("**今日は復習の日です**")
             st.metric("現在の進捗", f"{current_pass}周目 P.{current_page}")
         else:
             daily_pages_needed = math.ceil(remaining_workload / max(study_days_left, 1))
@@ -116,7 +116,7 @@ with tab1:
             chapter_res = supabase.table("book_chapters").select("chapter_name").eq("book_id", book['id']).lte("start_page", current_page + 1).order("start_page", desc=True).limit(1).execute()
             current_chapter = chapter_res.data[0]['chapter_name'] if chapter_res.data else "章情報なし"
 
-            st.subheader(f"🔄 {current_pass} / {total_passes} 周目")
+            st.subheader(f" {current_pass} / {total_passes} 周目")
             st.metric("今日の目標", f"P.{current_page + 1} 〜 P.{target_page}")
             if target_pass > current_pass:
                 st.warning(f"※今日中に第{target_pass}周目に入ります！")
@@ -146,7 +146,7 @@ with tab1:
                 supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins}, on_conflict="book_id, study_date").execute()
                 st.rerun()
 
-        with st.expander("📊 学習履歴（Habit Tracker）"):
+        with st.expander("Habit Tracker"):
             display_habit_tracker(book['id'])
 
         with st.expander("🛠 登録情報の修正"):
