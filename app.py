@@ -6,6 +6,7 @@ import math
 import re
 import plotly.express as px
 import pandas as pd
+import time
 
 # 1. Supabaseの設定
 URL = st.secrets["SUPABASE_URL"]
@@ -64,6 +65,14 @@ tab1, tab2 = st.tabs(["Today’s Task", "+ Add New Book"])
 
 # --- タブ1: 今日のタスク ---
 with tab1:
+    # セッション状態の初期化
+    if 'timer_start' not in st.session_state:
+        st.session_state.timer_start = None
+    if 'total_study_seconds' not in st.session_state:
+        st.session_state.total_study_seconds = 0
+    if 'timer_running' not in st.session_state:
+        st.session_state.timer_running = False
+    
     books_res = supabase.table("study_books").select("*").execute()
     
     if not books_res.data:
@@ -127,10 +136,40 @@ with tab1:
 
         # 進捗更新エリア
         with st.container():
-            col_p, col_t = st.columns(2)
+            col_p, col_start, col_end = st.columns(3)
             new_page_input = col_p.number_input("到達ページ (この周の)", min_value=0, max_value=total_pages, value=current_page)
-            study_mins = col_t.number_input("今日の勉強時間 (分)", min_value=0, value=30)
             
+            # タイマーコントロール
+            if col_start.button("▶ はじめ"):
+                st.session_state.timer_start = time.time()
+                st.session_state.timer_running = True
+                st.rerun()
+            
+            if col_end.button("⏹ 終わり"):
+                if st.session_state.timer_start is not None:
+                    elapsed_seconds = time.time() - st.session_state.timer_start
+                    st.session_state.total_study_seconds += elapsed_seconds
+                    st.session_state.timer_start = None
+                    st.session_state.timer_running = False
+                    st.rerun()
+            
+            # タイマー表示
+            st.divider()
+            if st.session_state.timer_running and st.session_state.timer_start is not None:
+                elapsed_seconds = time.time() - st.session_state.timer_start
+                total_seconds = st.session_state.total_study_seconds + elapsed_seconds
+                total_minutes = int(total_seconds / 60)
+                total_secs = int(total_seconds % 60)
+                st.metric(" 今日の勉強時間", f"{total_minutes}分 {total_secs}秒", delta="計測中")
+                st.rerun()
+            else:
+                total_minutes = int(st.session_state.total_study_seconds / 60)
+                total_secs = int(st.session_state.total_study_seconds % 60)
+                st.metric(" 今日の勉強時間", f"{total_minutes}分 {total_secs}秒")
+            
+            study_mins = int(st.session_state.total_study_seconds / 60) if st.session_state.total_study_seconds > 0 else 1
+            
+            st.divider()
             if st.button("進捗と勉強時間を保存"):
                 new_page = new_page_input
                 new_pass = current_pass
@@ -144,6 +183,12 @@ with tab1:
                 # DB更新
                 supabase.table("study_books").update({"current_page": new_page, "current_pass": new_pass}).eq("id", book['id']).execute()
                 supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins}, on_conflict="book_id, study_date").execute()
+                
+                # セッション状態をリセット
+                st.session_state.timer_start = None
+                st.session_state.total_study_seconds = 0
+                st.session_state.timer_running = False
+                
                 st.rerun()
 
         with st.expander("Habit Tracker"):
