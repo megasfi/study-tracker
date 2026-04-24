@@ -72,6 +72,8 @@ with tab1:
         st.session_state.total_study_seconds = 0
     if 'timer_running' not in st.session_state:
         st.session_state.timer_running = False
+    if 'memo_input' not in st.session_state:
+        st.session_state.memo_input = ""
     
     books_res = supabase.table("study_books").select("*").execute()
     
@@ -139,6 +141,9 @@ with tab1:
             col_p, col_start, col_end = st.columns(3)
             new_page_input = col_p.number_input("到達ページ (この周の)", min_value=0, max_value=total_pages, value=current_page)
             
+            # メモ入力
+            memo_input = st.text_area("メモ (最大200文字)", max_chars=200, height=80)
+            
             # タイマーコントロール
             if col_start.button("▶ はじめ"):
                 st.session_state.timer_start = time.time()
@@ -182,14 +187,26 @@ with tab1:
                 
                 # DB更新
                 supabase.table("study_books").update({"current_page": new_page, "current_pass": new_pass}).eq("id", book['id']).execute()
-                supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins}, on_conflict="book_id, study_date").execute()
+                supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins, "memo": memo_input.strip()}, on_conflict="book_id, study_date").execute()
                 
                 # セッション状態をリセット
                 st.session_state.timer_start = None
                 st.session_state.total_study_seconds = 0
                 st.session_state.timer_running = False
+                st.session_state.memo_input = ""
                 
                 st.rerun()
+
+        # メモ表示セクション
+        st.divider()
+        st.subheader("📝 学習メモ")
+        memo_logs = supabase.table("study_logs").select("study_date, memo").eq("book_id", book['id']).order("study_date", desc=True).execute()
+        if memo_logs.data:
+            for log in memo_logs.data:
+                if log.get('memo') and log['memo'].strip():
+                    st.write(f"**{log['study_date']}**: {log['memo']}")
+        else:
+            st.caption("メモがまだです")
 
         with st.expander("Habit Tracker"):
             display_habit_tracker(book['id'])
