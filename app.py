@@ -191,7 +191,7 @@ with tab1:
                     st.session_state.timer_running = False
                     st.rerun()
             
-            # タイマー表示
+            # タイマー表示と勉強時間管理
             st.divider()
             if st.session_state.timer_running and st.session_state.timer_start is not None:
                 elapsed_seconds = time.time() - st.session_state.timer_start
@@ -205,7 +205,19 @@ with tab1:
                 total_secs = int(st.session_state.total_study_seconds % 60)
                 st.metric(" 今日の勉強時間", f"{total_minutes}分 {total_secs}秒")
             
-            study_mins = int(st.session_state.total_study_seconds / 60) if st.session_state.total_study_seconds > 0 else 1
+            # 勉強時間の手動入力
+            st.subheader("勉強時間を調整")
+            col_h, col_m = st.columns(2)
+            with col_h:
+                manual_hours = st.number_input("時間", min_value=0, value=total_minutes // 60, step=1)
+            with col_m:
+                manual_minutes = st.number_input("分", min_value=0, max_value=59, value=total_minutes % 60, step=1)
+            
+            # 手動入力から秒数を計算
+            manual_total_minutes = manual_hours * 60 + manual_minutes
+            
+            # タイマーまたは手動入力のいずれかを使用
+            study_mins = manual_total_minutes if manual_total_minutes > 0 else 1
             
             st.divider()
             if st.button("進捗と勉強時間を保存"):
