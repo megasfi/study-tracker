@@ -263,35 +263,58 @@ with tab2:
             if existing.data:
                 st.warning("登録済みです。")
             else:
-                res = requests.get(f"https://api.openbd.jp/v1/get?isbn={isbn_input}").json()
-                if res and res[0]:
-                    data = res[0]
-                    title = data['summary']['title']
-                    try:
-                        extents = data['onix']['DescriptiveDetail']['Extent']
-                        total_pages = next(int(e['ExtentValue']) for e in extents if e['ExtentType'] == '00')
-                    except: total_pages = 300
-                    
-                    ins = supabase.table("study_books").insert({"isbn": isbn_input, "title": title, "total_pages": total_pages, "goal_date": str(target_date), "current_page": 0, "current_pass": 1}).execute()
-                    b_id = ins.data[0]['id']
-                    
-                    # 目次保存ロジック
-                    try:
-                        toc = data['onix']['CollateralDetail']['TextContent'][0]['Text']
-                        chapters = []
-                        last_p = 1
-                        for line in toc.split("\n"):
-                            if not line.strip(): continue
-                            p = extract_page_number(line)
-                            p_val = p if p else last_p
-                            chapters.append({"book_id": b_id, "chapter_name": line.strip(), "start_page": p_val})
-                            if p: last_p = p
-                        supabase.table("book_chapters").insert(chapters).execute()
-                    except:
-                        supabase.table("book_chapters").insert({"book_id": b_id, "chapter_name": "第1章", "start_page": 1}).execute()
-                    
-                    st.success(f"「{title}」を登録しました！")
-                    st.rerun()
+                try:
+                    res = requests.get(f"https://api.openbd.jp/v1/get?isbn={isbn_input}").json()
+                    if res and res[0]:
+                        data = res[0]
+                        title = data['summary']['title']
+                        try:
+                            extents = data['onix']['DescriptiveDetail']['Extent']
+                            total_pages = next(int(e['ExtentValue']) for e in extents if e['ExtentType'] == '00')
+                        except Exception as page_error:
+                            st.warning(f"ページ数が取得できなかったため、デフォルト値(300)を使用します")
+                            total_pages = 300
+                        
+                        try:
+                            ins = supabase.table("study_books").insert({
+                                "isbn": isbn_input,
+                                "title": title,
+                                "total_pages": total_pages,
+                                "goal_date": str(target_date),
+                                "current_page": 0,
+                                "current_pass": 1
+                            }).execute()
+                            b_id = ins.data[0]['id']
+                        except Exception as db_error:
+                            st.error(f"データベースエラー: 本の登録に失敗しました。\n{str(db_error)}")
+                            st.stop()
+                        
+                        # 目次保存ロジック
+                        try:
+                            toc = data['onix']['CollateralDetail']['TextContent'][0]['Text']
+                            chapters = []
+                            last_p = 1
+                            for line in toc.split("\n"):
+                                if not line.strip(): continue
+                                p = extract_page_number(line)
+                                p_val = p if p else last_p
+                                chapters.append({"book_id": b_id, "chapter_name": line.strip(), "start_page": p_val})
+                                if p: last_p = p
+                            supabase.table("book_chapters").insert(chapters).execute()
+                        except Exception as toc_error:
+                            # 目次取得失敗時は基本情報のみ登録
+                            supabase.table("book_chapters").insert({
+                                "book_id": b_id,
+                                "chapter_name": "第1章",
+                                "start_page": 1
+                            }).execute()
+                        
+                        st.success(f"「{title}」を登録しました！")
+                        st.rerun()
+                    else:
+                        st.error("指定されたISBNの書籍が見つかりません。ISBNを確認してください。")
+                except Exception as api_error:
+                    st.error(f"APIエラー: 書籍情報の取得に失敗しました。\n{str(api_error)}")
 
 # --- タブ3: 目標管理 ---
 with tab3:
