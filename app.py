@@ -168,79 +168,97 @@ with tab1:
             st.caption(f"残り {remaining_workload} ページ / 平日あと {study_days_left} 日")
 
         st.divider()
-
+        
         # 進捗更新エリア
-        with st.container():
-            col_p, col_start, col_end = st.columns(3)
-            new_page_input = col_p.number_input("到達ページ (この周の)", min_value=0, max_value=total_pages, value=current_page)
-            
-            # メモ入力
-            memo_input = st.text_area("メモ (最大200文字)", max_chars=200, height=80)
-            
-            # タイマーコントロール
-            if col_start.button("▶ はじめ"):
-                st.session_state.timer_start = time.time()
-                st.session_state.timer_running = True
-                st.rerun()
-            
-            if col_end.button("⏹ 終わり"):
-                if st.session_state.timer_start is not None:
-                    elapsed_seconds = time.time() - st.session_state.timer_start
-                    st.session_state.total_study_seconds += elapsed_seconds
-                    st.session_state.timer_start = None
-                    st.session_state.timer_running = False
-                    st.rerun()
-            
-            # タイマー表示と勉強時間管理
-            st.divider()
-            if st.session_state.timer_running and st.session_state.timer_start is not None:
-                elapsed_seconds = time.time() - st.session_state.timer_start
-                total_seconds = st.session_state.total_study_seconds + elapsed_seconds
-                total_minutes = int(total_seconds / 60)
-                total_secs = int(total_seconds % 60)
-                st.metric(" 今日の勉強時間", f"{total_minutes}分 {total_secs}秒", delta="計測中")
-                st.rerun()
-            else:
-                total_minutes = int(st.session_state.total_study_seconds / 60)
-                total_secs = int(st.session_state.total_study_seconds % 60)
-                st.metric(" 今日の勉強時間", f"{total_minutes}分 {total_secs}秒")
-            
-            # 勉強時間の手動入力
-            st.subheader("勉強時間を調整")
-            col_h, col_m = st.columns(2)
-            with col_h:
-                manual_hours = st.number_input("時間", min_value=0, value=total_minutes // 60, step=1)
-            with col_m:
-                manual_minutes = st.number_input("分", min_value=0, max_value=59, value=total_minutes % 60, step=1)
-            
-            # 手動入力から秒数を計算
-            manual_total_minutes = manual_hours * 60 + manual_minutes
-            
-            # タイマーまたは手動入力のいずれかを使用
-            study_mins = manual_total_minutes if manual_total_minutes > 0 else 1
-            
-            st.divider()
-            if st.button("進捗と勉強時間を保存"):
-                new_page = new_page_input
-                new_pass = current_pass
-                
-                # 周回アップ判定
-                if new_page >= total_pages and current_pass < total_passes:
-                    new_pass += 1
-                    new_page = 0
-                    st.balloons()
-                
-                # DB更新
-                supabase.table("study_books").update({"current_page": new_page, "current_pass": new_pass}).eq("id", book['id']).execute()
-                supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins, "memo": memo_input.strip()}, on_conflict="book_id,study_date").execute()
-                
-                # セッション状態をリセット
-                st.session_state.timer_start = None
-                st.session_state.total_study_seconds = 0
-                st.session_state.timer_running = False
-                st.session_state.memo_input = ""
-                
-                st.rerun()
+                with st.container():
+                    st.subheader("📝 今日の進捗と時間を記録")
+                    
+                    # メモ入力（上部に配置して入力を促す）
+                    memo_input = st.text_area("学習メモ (気づきや公式など)", max_chars=200, height=100, placeholder="例：流体力学の基本公式を復習。3周目は計算問題に集中する。")
+                    
+                    col_p, col_timer_ctrl = st.columns([1, 1])
+                    
+                    with col_p:
+                        new_page_input = st.number_input("到達ページ (この周の)", min_value=0, max_value=total_pages, value=current_page)
+                    
+                    with col_timer_ctrl:
+                        st.write("⏱ タイマー")
+                        t_col1, t_col2 = st.columns(2)
+                        if t_col1.button("▶ はじめ", use_container_width=True):
+                            st.session_state.timer_start = time.time()
+                            st.session_state.timer_running = True
+                            st.rerun()
+                        
+                        if t_col2.button("⏹ 終わり", use_container_width=True):
+                            if st.session_state.timer_start is not None:
+                                elapsed_seconds = time.time() - st.session_state.timer_start
+                                st.session_state.total_study_seconds += elapsed_seconds
+                                st.session_state.timer_start = None
+                                st.session_state.timer_running = False
+                                st.rerun()
+        
+                    # 勉強時間の設定（タイマーの結果を初期値にしつつ、手動調整可能にする）
+                    st.divider()
+                    
+                    # タイマーが動いている時はリアルタイムで表示、止まっている時は手動入力欄を表示
+                    if st.session_state.timer_running:
+                        elapsed_now = time.time() - st.session_state.timer_start
+                        total_now = st.session_state.total_study_seconds + elapsed_now
+                        mins_now = int(total_now // 60)
+                        secs_now = int(total_now % 60)
+                        st.metric("現在の計測時間", f"{mins_now}分 {secs_now}秒", delta="計測中...")
+                        # タイマー動作中は1秒ごとに更新するための再実行
+                        time.sleep(1)
+                        st.rerun()
+                    
+                    # 手動入力欄：タイマー停止時の累積時間を初期値（value）に設定
+                    st.write("📖 勉強時間の確認・調整")
+                    col_h, col_m = st.columns(2)
+                    
+                    initial_mins = int(st.session_state.total_study_seconds // 60)
+                    
+                    with col_h:
+                        manual_hours = st.number_input("時間", min_value=0, value=initial_mins // 60, step=1)
+                    with col_m:
+                        manual_minutes = st.number_input("分", min_value=0, max_value=59, value=initial_mins % 60, step=1)
+                    
+                    # 最終的な保存用の分数を計算
+                    final_study_mins = (manual_hours * 60) + manual_minutes
+        
+                    if st.button("🚀 この内容で保存する", type="primary", use_container_width=True):
+                        # 0分での保存を防止（最低1分とする）
+                        save_mins = max(final_study_mins, 1)
+                        
+                        new_page = new_page_input
+                        new_pass = current_pass
+                        
+                        # 周回アップ判定
+                        if new_page >= total_pages and current_pass < total_passes:
+                            new_pass += 1
+                            new_page = 0
+                            st.balloons()
+                        
+                        # DB更新
+                        supabase.table("study_books").update({
+                            "current_page": new_page, 
+                            "current_pass": new_pass
+                        }).eq("id", book['id']).execute()
+                        
+                        supabase.table("study_logs").upsert({
+                            "book_id": book['id'], 
+                            "study_date": str(today), 
+                            "minutes": save_mins, 
+                            "memo": memo_input.strip()
+                        }, on_conflict="book_id,study_date").execute()
+                        
+                        # 保存後はセッションをクリアしてリセット
+                        st.session_state.total_study_seconds = 0
+                        st.session_state.timer_start = None
+                        st.session_state.timer_running = False
+                        
+                        st.success(f"保存完了！ 今日の勉強時間: {save_mins}分")
+                        time.sleep(1)
+                        st.rerun()
 
         # メモ表示セクション
         st.divider()
