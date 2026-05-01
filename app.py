@@ -41,7 +41,7 @@ def calculate_streak(book_id):
     return streak
 
 def display_habit_tracker(book_id):
-    res = supabase.table("study_logs").select("study_date, minutes").eq("book_id", book_id).execute()
+    res = supabase.table("study_logs").select("study_date, minutes, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
     if res.data:
         df = pd.DataFrame(res.data)
         df['study_date'] = pd.to_datetime(df['study_date'])
@@ -59,9 +59,19 @@ def display_habit_tracker(book_id):
             color_continuous_scale="Viridis"
         )
         st.plotly_chart(fig, use_container_width=True)
+        
+        # メモを日付順に表示
+        st.subheader("📝 学習メモ一覧")
+        memo_logs = supabase.table("study_logs").select("study_date, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
+        if memo_logs.data:
+            for log in memo_logs.data:
+                if log.get('memo') and log['memo'].strip():
+                    st.write(f"**{log['study_date']}**: {log['memo']}")
+        else:
+            st.caption("メモがまだです")
 
 # --- タブの設定 ---
-tab1, tab2 = st.tabs(["Today’s Task", "+ Add New Book"])
+tab1, tab2 = st.tabs(["Today's Task", "+ Add New Book"])
 
 # --- タブ1: 今日のタスク ---
 with tab1:
