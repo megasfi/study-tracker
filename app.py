@@ -21,11 +21,19 @@ def extract_page_number(text):
     match = re.search(r'(\d+)$', text.strip())
     return int(match.group(1)) if match else None
 
-def calculate_streak(book_id):
-    res = supabase.table("study_logs").select("study_date").eq("book_id", book_id).order("study_date", desc=True).execute()
+def calculate_streak(book_id=None, goal_id=None):
+    """本または目標のストリーク計算"""
+    if book_id:
+        res = supabase.table("study_logs").select("study_date").eq("book_id", book_id).order("study_date", desc=True).execute()
+    elif goal_id:
+        res = supabase.table("goal_logs").select("log_date").eq("goal_id", goal_id).order("log_date", desc=True).execute()
+    else:
+        return 0
+    
     if not res.data: return 0
     
-    dates = sorted(list(set([datetime.date.fromisoformat(d['study_date']) for d in res.data])), reverse=True)
+    date_key = 'study_date' if book_id else 'log_date'
+    dates = sorted(list(set([datetime.date.fromisoformat(d[date_key]) for d in res.data])), reverse=True)
     today = datetime.date.today()
     yesterday = today - datetime.timedelta(days=1)
     
@@ -40,38 +48,53 @@ def calculate_streak(book_id):
         else: break
     return streak
 
-def display_habit_tracker(book_id):
-    res = supabase.table("study_logs").select("study_date, minutes, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
+def display_habit_tracker(book_id=None, goal_id=None, title="Study Habit Tracker"):
+    """ハビットトラッカーの表示"""
+    if book_id:
+        res = supabase.table("study_logs").select("study_date, minutes, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
+        date_key, value_key = 'study_date', 'minutes'
+    elif goal_id:
+        res = supabase.table("goal_logs").select("log_date, progress_value, memo").eq("goal_id", goal_id).order("log_date", desc=True).execute()
+        date_key, value_key = 'log_date', 'progress_value'
+    else:
+        return
+    
     if res.data:
         df = pd.DataFrame(res.data)
-        df['study_date'] = pd.to_datetime(df['study_date'])
-        df['week'] = df['study_date'].dt.isocalendar().week
-        df['day'] = df['study_date'].dt.day_name()
+        df[date_key] = pd.to_datetime(df[date_key])
+        df['week'] = df[date_key].dt.isocalendar().week
+        df['day'] = df[date_key].dt.day_name()
         
-        # 曜日の順序を固定
         day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
         
         fig = px.density_heatmap(
-            df, x="week", y="day", z="minutes",
+            df, x="week", y="day", z=value_key,
             category_orders={'day': day_order},
-            title="Study Habit Tracker (Learning Minutes)",
-            labels={'minutes': '分', 'week': '週', 'day': '曜日'},
+            title=f"{title} (Learning Activity)",
+            labels={value_key: '進捗', 'week': '週', 'day': '曜日'},
             color_continuous_scale="Viridis"
         )
         st.plotly_chart(fig, use_container_width=True)
         
         # メモを日付順に表示
-        st.subheader("📝 学習メモ一覧")
-        memo_logs = supabase.table("study_logs").select("study_date, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
+        st.subheader("📝 メモ一覧")
+        if book_id:
+            memo_logs = supabase.table("study_logs").select("study_date, memo").eq("book_id", book_id).order("study_date", desc=True).execute()
+        else:
+            memo_logs = supabase.table("goal_logs").select("log_date, memo").eq("goal_id", goal_id).order("log_date", desc=True).execute()
+        
         if memo_logs.data:
             for log in memo_logs.data:
+                date_field = 'study_date' if 'study_date' in log else 'log_date'
                 if log.get('memo') and log['memo'].strip():
-                    st.write(f"**{log['study_date']}**: {log['memo']}")
+                    st.write(f"**{log[date_field]}**: {log['memo']}")
         else:
             st.caption("メモがまだです")
+    else:
+        st.info("まだデータがありません")
 
 # --- タブの設定 ---
-tab1, tab2 = st.tabs(["Today's Task", "+ Add New Book"])
+tab1, tab2, tab3 = st.tabs(["Today's Task", "+ Add New Book", "🎯 Goals"])
 
 # --- タブ1: 今日のタスク ---
 with tab1:
@@ -121,7 +144,7 @@ with tab1:
         remaining_workload = total_workload - completed_workload
 
         # --- 表示部分 ---
-        streak = calculate_streak(book['id'])
+        streak = calculate_streak(book_id=book['id'])
         st.markdown(f"### 現在 **{streak}** 日連続学習中！")
 
         if is_weekend:
@@ -219,7 +242,7 @@ with tab1:
             st.caption("メモがまだです")
 
         with st.expander("Habit Tracker"):
-            display_habit_tracker(book['id'])
+            display_habit_tracker(book_id=book['id'], title="Study Habit Tracker")
 
         with st.expander("🛠 登録情報の修正"):
             new_title = st.text_input("タイトル修正", value=book['title'])
@@ -269,4 +292,105 @@ with tab2:
                     
                     st.success(f"「{title}」を登録しました！")
                     st.rerun()
-#EOF
+
+# --- タブ3: 目標管理 ---
+with tab3:
+    st.subheader("🎯 任意の目標を管理")
+    
+    # 目標追加セクション
+    with st.expander("➕ 新しい目標を追加", expanded=False):
+        goal_title = st.text_input("目標タイトル (例: 読書時間、運動時間など)")
+        goal_desc = st.text_area("目標の説明", height=80)
+        goal_target = st.number_input("目標値", min_value=1, value=100)
+        goal_unit = st.text_input("単位 (例: ページ、時間、回数など)", value="回")
+        goal_deadline = st.date_input("期限")
+        
+        if st.button("目標を作成"):
+            supabase.table("goals").insert({
+                "title": goal_title,
+                "description": goal_desc,
+                "target_value": goal_target,
+                "unit": goal_unit,
+                "deadline": str(goal_deadline),
+                "progress": 0
+            }).execute()
+            st.success(f"「{goal_title}」を作成しました！")
+            st.rerun()
+    
+    st.divider()
+    
+    # 登録済み目標の表示
+    goals_res = supabase.table("goals").select("*").order("deadline", desc=False).execute()
+    
+    if not goals_res.data:
+        st.info("目標がまだ登録されていません")
+    else:
+        for goal in goals_res.data:
+            with st.container(border=True):
+                col1, col2 = st.columns([3, 1])
+                
+                with col1:
+                    st.subheader(goal['title'])
+                    if goal.get('description'):
+                        st.caption(goal['description'])
+                    
+                    # ストリーク表示
+                    streak = calculate_streak(goal_id=goal['id'])
+                    st.markdown(f"**連続達成: {streak} 日**")
+                    
+                    # 進捗表示
+                    progress_pct = min(100, (goal['progress'] / goal['target_value'] * 100)) if goal['target_value'] > 0 else 0
+                    st.progress(progress_pct / 100)
+                    st.caption(f"{goal['progress']} / {goal['target_value']} {goal['unit']}")
+                
+                with col2:
+                    # 削除ボタン
+                    if st.button("削除", key=f"delete_{goal['id']}"):
+                        supabase.table("goals").delete().eq("id", goal['id']).execute()
+                        st.rerun()
+                
+                st.divider()
+                
+                # 本日のログ入力
+                today = datetime.date.today()
+                today_log_res = supabase.table("goal_logs").select("*").eq("goal_id", goal['id']).eq("log_date", str(today)).execute()
+                today_log = today_log_res.data[0] if today_log_res.data else None
+                
+                col_progress, col_memo = st.columns([1, 2])
+                
+                with col_progress:
+                    current_progress = today_log['progress_value'] if today_log else 0
+                    new_progress = st.number_input(
+                        "本日の進捗",
+                        min_value=0,
+                        value=current_progress,
+                        key=f"progress_{goal['id']}"
+                    )
+                
+                with col_memo:
+                    memo = st.text_input(
+                        "メモ",
+                        value=today_log['memo'] if today_log else "",
+                        key=f"memo_{goal['id']}"
+                    )
+                
+                if st.button("保存", key=f"save_{goal['id']}"):
+                    # 本日の進捗を保存
+                    supabase.table("goal_logs").upsert({
+                        "goal_id": goal['id'],
+                        "log_date": str(today),
+                        "progress_value": new_progress,
+                        "memo": memo
+                    }, on_conflict="goal_id, log_date").execute()
+                    
+                    # 目標の総進捗を更新（本日の値に更新）
+                    supabase.table("goals").update({
+                        "progress": new_progress
+                    }).eq("id", goal['id']).execute()
+                    
+                    st.success("保存しました！")
+                    st.rerun()
+                
+                # Habit Tracker
+                with st.expander("📊 進捗チャート"):
+                    display_habit_tracker(goal_id=goal['id'], title=goal['title'])
