@@ -220,7 +220,7 @@ with tab1:
                 
                 # DB更新
                 supabase.table("study_books").update({"current_page": new_page, "current_pass": new_pass}).eq("id", book['id']).execute()
-                supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins, "memo": memo_input.strip()}, on_conflict="book_id, study_date").execute()
+                supabase.table("study_logs").upsert({"book_id": book['id'], "study_date": str(today), "minutes": study_mins, "memo": memo_input.strip()}, on_conflict="book_id,study_date").execute()
                 
                 # セッション状態をリセット
                 st.session_state.timer_start = None
@@ -404,7 +404,7 @@ with tab3:
                         "log_date": str(today),
                         "progress_value": new_progress,
                         "memo": memo
-                    }, on_conflict="goal_id, log_date").execute()
+                    }, on_conflict="goal_id,log_date").execute()
                     
                     # 目標の総進捗を更新（本日の値に更新）
                     supabase.table("goals").update({
